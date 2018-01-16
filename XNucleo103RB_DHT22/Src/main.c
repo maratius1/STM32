@@ -50,6 +50,7 @@ TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
+DHT22_Instance *dht22_instance;
 
 /* USER CODE END PV */
 
@@ -67,7 +68,8 @@ static void MX_TIM2_Init(void);
 
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
-	DHT22_TIM_IC_CaptureCallback(htim);
+	if (dht22_instance)
+		DHT22_TIM_IC_CaptureCallback(htim, dht22_instance);
 }
 
 /* USER CODE END 0 */
@@ -116,7 +118,9 @@ int main(void)
 
   /* USER CODE BEGIN 3 */
     HAL_Delay(2000);
+    dht22_instance = &dht22Instance;
     DHT22_Value value = DHT22_GetValue(&dht22Instance);
+    dht22_instance = NULL;
   }
   /* USER CODE END 3 */
 

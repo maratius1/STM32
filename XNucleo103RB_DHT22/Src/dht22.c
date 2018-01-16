@@ -2,23 +2,6 @@
 
 #include <stdbool.h>
 
-typedef enum
-{
-	Falling,
-	Rising
-} OneWireSignalState;
-
-uint16_t dht22_values[42*2];
-uint8_t dht22_i_values;
-OneWireSignalState dht22_firstSignalState;
-OneWireSignalState dht22_prevSignalState;
-DHT22_Error dht22_error;
-
-#define TIM_ACTIVE_CHANNEL_FALLING HAL_TIM_ACTIVE_CHANNEL_1
-#define TIM_CHANNEL_FALLING TIM_CHANNEL_1
-#define TIM_ACTIVE_CHANNEL_RAISING HAL_TIM_ACTIVE_CHANNEL_2
-#define TIM_CHANNEL_RISING TIM_CHANNEL_2
-
 void SetGPIOMode(DHT22_Instance *instance, int isOut)
 {
 	GPIO_InitTypeDef GPIO_InitStruct;
@@ -55,11 +38,11 @@ void SetGPIOMode(DHT22_Instance *instance, int isOut)
 	HAL_GPIO_Init(instance->TimerPort, &GPIO_InitStruct);
 }
 
-void DHT22_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
+void DHT22_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim, DHT22_Instance *instance)
 {
-	if (dht22_i_values >= 42*2 && dht22_error == None)
-		dht22_error = CountOverflow;
-	if (dht22_error != None)
+	if (instance->Internal.ReadValuesIndex >= 42*2 && instance->Internal.Error == None)
+		instance->Internal.Error = CountOverflow;
+	if (instance->Internal.Error != None)
 		return;
 
 	uint32_t timChannelNumber;
@@ -78,19 +61,20 @@ void DHT22_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 		return;
 	}
 
-	if (dht22_i_values == 0)
-		dht22_firstSignalState = dht22_prevSignalState = signalState;
+	if (instance->Internal.ReadValuesIndex == 0)
+		instance->Internal.FirstSignalState = instance->Internal.PrevSignalState = signalState;
 	else
-	{
-		if (dht22_prevSignalState == signalState)
+	{ 
+		if (instance->Internal.PrevSignalState == signalState)
 		{
-			dht22_error = InterleaveMismatch;
+			instance->Internal.Error = InterleaveMismatch;
 			return;
 		}
-		dht22_prevSignalState = signalState;
+		instance->Internal.PrevSignalState = signalState;
 	}
 
-	dht22_values[dht22_i_values++] = HAL_TIM_ReadCapturedValue(htim, timChannelNumber);
+	instance->Internal.ReadValues[instance->Internal.ReadValuesIndex++] =
+		HAL_TIM_ReadCapturedValue(htim, timChannelNumber);
 }
 
 #define DHT22_StartingLowLengthMin (80-5)
@@ -110,27 +94,37 @@ void DHT22_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 #define DHT22_LowInterByteLengthMin (67-5)
 #define DHT22_LowInterByteLengthMax (67+5)
 
-bool DHT22_ReadInterBitSpace(uint8_t *i)
+bool DHT22_CheckStartSequence(DHT22_Internal *internal)
 {
-	uint16_t val = dht22_values[(*i)++];
+	internal->ReadValuesIndex = 3;
+	uint16_t val = internal->ReadValues[1];
+	if (val < DHT22_StartingLowLengthMin || DHT22_StartingLowLengthMax < val)
+		return false;
+	val = internal->ReadValues[2];
+	return (DHT22_StartingHighLengthMin <= val && val <= DHT22_StartingHighLengthMax);
+}
+
+bool DHT22_ReadInterBitSpace(DHT22_Internal *internal)
+{
+	uint16_t val = internal->ReadValues[internal->ReadValuesIndex++];
 	return (DHT22_LowInterBitLengthMin <= val && val <= DHT22_LowInterBitLengthMax);
 }
 
-bool DHT22_ReadInterByteSpace(uint8_t *i)
+bool DHT22_ReadInterByteSpace(DHT22_Internal *internal)
 {
-	uint16_t val = dht22_values[(*i)++];
+	uint16_t val = internal->ReadValues[internal->ReadValuesIndex++];
 	return (DHT22_LowInterByteLengthMin <= val && val <= DHT22_LowInterByteLengthMax);
 }
 
-int16_t DHT22_ReadOneByte(uint8_t *i)
+int16_t DHT22_ReadOneByte(DHT22_Internal *internal)
 {
 	int16_t value = 0;
 	int8_t j;
 	for (j = 7; j >= 0; --j)
 	{
-		if (j != 7 && !DHT22_ReadInterBitSpace(i))
+		if (j != 7 && !DHT22_ReadInterBitSpace(internal))
 			return (int16_t)-1;
-		uint16_t val = dht22_values[(*i)++];
+		uint16_t val = internal->ReadValues[internal->ReadValuesIndex++];
 		if (DHT22_HighZeroBitLengthMin <= val && val <= DHT22_HighZeroBitLengthMax)
 		{
 			// Bit "Zero"
@@ -149,16 +143,16 @@ int16_t DHT22_ReadOneByte(uint8_t *i)
 	return value;
 }
 
-int32_t DHT22_ReadOneValue(uint8_t *i)
+int32_t DHT22_ReadOneValue(DHT22_Internal *internal)
 {
-	int16_t highByte = DHT22_ReadOneByte(i);
+	int16_t highByte = DHT22_ReadOneByte(internal);
 	if (highByte < 0)
 		return (int32_t)-1;
 
-	if (!DHT22_ReadInterByteSpace(i))
+	if (!DHT22_ReadInterByteSpace(internal))
 		return (int32_t)-1;
 
-	int16_t lowByte = DHT22_ReadOneByte(i);
+	int16_t lowByte = DHT22_ReadOneByte(internal);
 	if (lowByte < 0)
 		return (int32_t)-1;
 
@@ -167,7 +161,6 @@ int32_t DHT22_ReadOneValue(uint8_t *i)
 
 DHT22_Value DHT22_GetValue(DHT22_Instance *instance)
 {
-	uint8_t i;
 	DHT22_Value result;
 
 	SetGPIOMode(instance, 1);
@@ -175,8 +168,8 @@ DHT22_Value DHT22_GetValue(DHT22_Instance *instance)
 	HAL_Delay(2);
 	SetGPIOMode(instance, 0);
 	__HAL_TIM_SET_COUNTER(instance->Timer, 0);
-	dht22_i_values = 0;
-	dht22_error = None;
+	instance->Internal.ReadValuesIndex = 0;
+	instance->Internal.Error = None;
 	HAL_TIM_IC_Start_IT(instance->Timer, instance->TimerCaptureFallingEdgeChannel);
 	HAL_TIM_IC_Start_IT(instance->Timer, instance->TimerCaptureRisingEdgeChannel);
 	HAL_Delay(20);
@@ -185,39 +178,39 @@ DHT22_Value DHT22_GetValue(DHT22_Instance *instance)
 
 	result.Error = StartSequenceMismatch;
 
-	if (dht22_firstSignalState != Falling)
+	DHT22_Internal *internal = &(instance->Internal);
+
+	if (internal->FirstSignalState != Falling)
 		return result;
 
-	for (i = 42*2 - 1; i > 0; --i)
-		dht22_values[i] = dht22_values[i] - dht22_values[i-1];
+	for (int i = 42*2 - 1; i > 0; --i)
+		internal->ReadValues[i] = internal->ReadValues[i] - internal->ReadValues[i-1];
 
-	if ((dht22_values[1] < DHT22_StartingLowLengthMin) || (dht22_values[1] > DHT22_StartingLowLengthMax) ||
-		(dht22_values[2] < DHT22_StartingHighLengthMin) || (dht22_values[2] > DHT22_StartingHighLengthMax))
+	if (!DHT22_CheckStartSequence(internal))
 		return result;
 
 	result.Error = DataTimingsMismatch;
 
-	i = 3;
-	if (!DHT22_ReadInterBitSpace(&i))
+	if (!DHT22_ReadInterBitSpace(internal))
 		return result;
 
-	int32_t humidity = DHT22_ReadOneValue(&i);
+	int32_t humidity = DHT22_ReadOneValue(internal);
 	if (humidity < (int32_t)0)
 		return result;
 	result.Humidity = (uint16_t)humidity;
 
-	if (!DHT22_ReadInterByteSpace(&i))
+	if (!DHT22_ReadInterByteSpace(internal))
 		return result;
 
-	int32_t temperature = DHT22_ReadOneValue(&i);
+	int32_t temperature = DHT22_ReadOneValue(internal);
 	if (temperature < 0)
 		return result;
 	result.Temperature = (uint16_t)temperature;
 
-	if (!DHT22_ReadInterByteSpace(&i))
+	if (!DHT22_ReadInterByteSpace(internal))
 		return result;
 
-	int16_t crc_value = DHT22_ReadOneByte(&i);
+	int16_t crc_value = DHT22_ReadOneByte(internal);
 	if (crc_value < 0)
 		return result;
 
