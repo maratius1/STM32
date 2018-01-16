@@ -1,7 +1,7 @@
 [PreviousGenFiles]
-HeaderPath=C:/Users/Maratius/Documents/STM32/XNucleoDHT22/Inc
+HeaderPath=C:/Users/Maratius/Documents/Repositories/STM32/XNucleo103RB_DHT22/Inc
 HeaderFiles=stm32f1xx_it.h;stm32f1xx_hal_conf.h;main.h;
-SourcePath=C:/Users/Maratius/Documents/STM32/XNucleoDHT22/Src
+SourcePath=C:/Users/Maratius/Documents/Repositories/STM32/XNucleo103RB_DHT22/Src
 SourceFiles=stm32f1xx_it.c;stm32f1xx_hal_msp.c;main.c;
 
 [PreviousLibFiles]

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Project>
-<ProjectName>C:\Users\Maratius\Documents\STM32\XNucleoDHT22\\XNucleoDHT22</ProjectName>
+<ProjectName>C:\Users\Maratius\Documents\Repositories\STM32\XNucleo103RB_DHT22\\XNucleoDHT22</ProjectName>
 <CMSIS>..\Drivers\CMSIS</CMSIS>
 <HAL_Driver>C:\Users\Maratius\STM32Cube\Repository\STM32Cube_FW_F1_V1.6.0\Drivers\CMSIS</HAL_Driver>
 
