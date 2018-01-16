@@ -1,3 +1,5 @@
+.mxproject
+mx.scratch
 MDK-ARM
 !MDK-ARM\*.s
 !MDK-ARM\*.uvprojx
